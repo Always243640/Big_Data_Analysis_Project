@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import torch
 import argparse
@@ -13,7 +14,7 @@ def str2bool(s):
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', required=True)
-parser.add_argument('--train_dir', required=True)
+parser.add_argument('--train_dir', default='run1')
 parser.add_argument('--batch_size', default=128, type=int)
 parser.add_argument('--lr', default=0.001, type=float)
 parser.add_argument('--maxlen', default=50, type=int)
@@ -26,30 +27,51 @@ parser.add_argument('--l2_emb', default=0.0, type=float)
 parser.add_argument('--device', default='cpu', type=str)
 parser.add_argument('--inference_only', default=False, type=str2bool)
 parser.add_argument('--state_dict_path', default=None, type=str)
+parser.add_argument('--topk', default='1,5', type=str)
+parser.add_argument('--generate_topk', default=True, type=str2bool)
+parser.add_argument('--recommend_output', default='recommendations.csv', type=str)
 
 args = parser.parse_args()
-if not os.path.isdir(args.dataset + '_' + args.train_dir):
-    os.makedirs(args.dataset + '_' + args.train_dir)
-with open(os.path.join(args.dataset + '_' + args.train_dir, 'args.txt'), 'w') as f:
+
+dataset_key = os.path.splitext(os.path.basename(args.dataset.rstrip('/')))[0]
+log_dir = dataset_key + '_' + args.train_dir
+if not os.path.isdir(log_dir):
+    os.makedirs(log_dir)
+with open(os.path.join(log_dir, 'args.txt'), 'w') as f:
     f.write('\n'.join([str(k) + ',' + str(v) for k, v in sorted(vars(args).items(), key=lambda x: x[0])]))
 f.close()
+
+try:
+    topk_values = sorted({int(k.strip()) for k in args.topk.split(',') if k.strip()})
+except ValueError as exc:
+    raise ValueError('Failed to parse --topk argument, please provide comma separated integers') from exc
+if not topk_values:
+    raise ValueError('Please provide at least one value for --topk')
 
 if __name__ == '__main__':
     # global dataset
     dataset = data_partition(args.dataset)
 
-    [user_train, user_valid, user_test, usernum, itemnum] = dataset
-    num_batch = len(user_train) // args.batch_size # tail? + ((len(user_train) % args.batch_size) != 0)
+    user_train = dataset['user_train']
+    user_valid = dataset['user_valid']
+    user_test = dataset['user_test']
+    usernum = dataset['usernum']
+    itemnum = dataset['itemnum']
+
+    num_batch = len(user_train) // args.batch_size + (len(user_train) % args.batch_size != 0)
+    num_batch = max(1, num_batch)
     cc = 0.0
     for u in user_train:
         cc += len(user_train[u])
     print('average sequence length: %.2f' % (cc / len(user_train)))
-    
-    f = open(os.path.join(args.dataset + '_' + args.train_dir, 'log.txt'), 'w')
-    
-    sampler = WarpSampler(user_train, usernum, itemnum, batch_size=args.batch_size, maxlen=args.maxlen, n_workers=3)
+
+    f = open(os.path.join(log_dir, 'log.txt'), 'w')
+
+    sampler = None
+    if not args.inference_only:
+        sampler = WarpSampler(user_train, usernum, itemnum, batch_size=args.batch_size, maxlen=args.maxlen, n_workers=3)
     model = SASRec(usernum, itemnum, args).to(args.device) # no ReLU activation in original SASRec implementation?
-    
+
     for name, param in model.named_parameters():
         try:
             torch.nn.init.xavier_normal_(param.data)
@@ -78,6 +100,14 @@ if __name__ == '__main__':
         model.eval()
         t_test = evaluate(model, dataset, args)
         print('test (NDCG@10: %.4f, HR@10: %.4f)' % (t_test[0], t_test[1]))
+        if args.generate_topk:
+            output_file = os.path.join(log_dir, args.recommend_output)
+            generate_topk_recommendations(model, dataset, args, topk_values, output_file)
+            print('Top-K recommendations saved to %s' % output_file)
+        f.close()
+        if sampler:
+            sampler.close()
+        sys.exit(0)
     
     # ce_criterion = torch.nn.CrossEntropyLoss()
     # https://github.com/NVIDIA/pix2pixHD/issues/9 how could an old bug appear again...
@@ -113,18 +143,25 @@ if __name__ == '__main__':
             t_valid = evaluate_valid(model, dataset, args)
             print('epoch:%d, time: %f(s), valid (NDCG@10: %.4f, HR@10: %.4f), test (NDCG@10: %.4f, HR@10: %.4f)'
                     % (epoch, T, t_valid[0], t_valid[1], t_test[0], t_test[1]))
-    
+
             f.write(str(t_valid) + ' ' + str(t_test) + '\n')
             f.flush()
             t0 = time.time()
             model.train()
-    
+
         if epoch == args.num_epochs:
-            folder = args.dataset + '_' + args.train_dir
+            folder = log_dir
             fname = 'SASRec.epoch={}.lr={}.layer={}.head={}.hidden={}.maxlen={}.pth'
             fname = fname.format(args.num_epochs, args.lr, args.num_blocks, args.num_heads, args.hidden_units, args.maxlen)
             torch.save(model.state_dict(), os.path.join(folder, fname))
-    
+
     f.close()
-    sampler.close()
+    if sampler:
+        sampler.close()
+
+    if args.generate_topk:
+        model.eval()
+        output_file = os.path.join(log_dir, args.recommend_output)
+        generate_topk_recommendations(model, dataset, args, topk_values, output_file)
+        print('Top-K recommendations saved to %s' % output_file)
     print("Done")
