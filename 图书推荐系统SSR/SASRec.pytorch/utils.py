@@ -161,6 +161,118 @@ def _load_text_dataset(path):
     }
 
 
+def _safe_int(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _find_metadata_files(start_path):
+    current_dir = os.path.abspath(os.path.dirname(start_path))
+    visited = set()
+
+    while current_dir not in visited:
+        visited.add(current_dir)
+        candidate_dir = os.path.join(current_dir, 'mydata')
+        item_path = os.path.join(candidate_dir, 'item.csv')
+        user_path = os.path.join(candidate_dir, 'user.csv')
+        if os.path.isfile(item_path) and os.path.isfile(user_path):
+            return item_path, user_path
+
+        parent = os.path.dirname(current_dir)
+        if parent == current_dir:
+            break
+        current_dir = parent
+
+    return None, None
+
+
+def _load_metadata_tables(interaction_path, id2user, id2item):
+    item_csv, user_csv = _find_metadata_files(interaction_path)
+    metadata = {
+        'item_author_ids': None,
+        'item_category_ids': None,
+        'user_dept_ids': None,
+        'author_count': 0,
+        'category_count': 0,
+        'dept_count': 0,
+    }
+
+    if not item_csv and not user_csv:
+        return metadata
+
+    item_meta = {}
+    if item_csv and os.path.isfile(item_csv):
+        with open(item_csv, 'r', encoding='utf-8-sig', newline='') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                raw_id = _safe_int(row.get('book_id'))
+                if raw_id is None:
+                    continue
+                item_meta[raw_id] = {
+                    'author': (row.get('作者') or '').strip(),
+                    'category': (row.get('一级分类') or '').strip(),
+                }
+
+    user_meta = {}
+    if user_csv and os.path.isfile(user_csv):
+        with open(user_csv, 'r', encoding='utf-8-sig', newline='') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                raw_id = _safe_int(row.get('借阅人'))
+                if raw_id is None:
+                    continue
+                user_meta[raw_id] = {
+                    'dept': (row.get('DEPT') or '').strip(),
+                }
+
+    author2id = {'__PAD__': 0}
+    category2id = {'__PAD__': 0}
+    dept2id = {'__PAD__': 0}
+
+    item_author_ids = np.zeros(len(id2item) + 1, dtype=np.int64)
+    item_category_ids = np.zeros(len(id2item) + 1, dtype=np.int64)
+
+    for iid, raw_item in id2item.items():
+        meta = item_meta.get(raw_item)
+        if meta:
+            author = meta.get('author', '')
+            category = meta.get('category', '')
+        else:
+            author = ''
+            category = ''
+
+        if author:
+            if author not in author2id:
+                author2id[author] = len(author2id)
+            item_author_ids[iid] = author2id[author]
+
+        if category:
+            if category not in category2id:
+                category2id[category] = len(category2id)
+            item_category_ids[iid] = category2id[category]
+
+    user_dept_ids = np.zeros(len(id2user) + 1, dtype=np.int64)
+
+    for uid, raw_user in id2user.items():
+        meta = user_meta.get(raw_user)
+        dept = meta.get('dept', '') if meta else ''
+        if dept:
+            if dept not in dept2id:
+                dept2id[dept] = len(dept2id)
+            user_dept_ids[uid] = dept2id[dept]
+
+    metadata['item_author_ids'] = item_author_ids.tolist()
+    metadata['item_category_ids'] = item_category_ids.tolist()
+    metadata['user_dept_ids'] = user_dept_ids.tolist()
+    metadata['author_count'] = len(author2id)
+    metadata['category_count'] = len(category2id)
+    metadata['dept_count'] = len(dept2id)
+
+    return metadata
+
+
 def _load_csv_dataset(path):
     interactions = []
     with open(path, 'r', encoding='utf-8') as f:
@@ -207,6 +319,8 @@ def _load_csv_dataset(path):
 
     user_train, user_valid, user_test = _split_user_sequences(user_history)
 
+    metadata = _load_metadata_tables(path, id2user, id2item)
+
     return {
         'user_train': user_train,
         'user_valid': user_valid,
@@ -217,6 +331,7 @@ def _load_csv_dataset(path):
         'item2id': item2id,
         'id2user': id2user,
         'id2item': id2item,
+        'metadata': metadata,
     }
 
 
@@ -225,9 +340,10 @@ def data_partition(fname):
     path = _resolve_dataset_path(fname)
 
     if os.path.isdir(path):
-        candidate = os.path.join(path, 'inter_reevaluation.csv')
-        if os.path.isfile(candidate):
-            return _load_csv_dataset(candidate)
+        for candidate_name in ('interaction.csv', 'inter_reevaluation.csv'):
+            candidate = os.path.join(path, candidate_name)
+            if os.path.isfile(candidate):
+                return _load_csv_dataset(candidate)
         raise FileNotFoundError(f'No interaction csv file found inside directory "{path}"')
 
     _, ext = os.path.splitext(path)
