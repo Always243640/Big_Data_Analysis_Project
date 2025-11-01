@@ -70,7 +70,8 @@ if __name__ == '__main__':
     sampler = None
     if not args.inference_only:
         sampler = WarpSampler(user_train, usernum, itemnum, batch_size=args.batch_size, maxlen=args.maxlen, n_workers=3)
-    model = SASRec(usernum, itemnum, args).to(args.device) # no ReLU activation in original SASRec implementation?
+    metadata = dataset.get('metadata', {})
+    model = SASRec(usernum, itemnum, args, metadata=metadata).to(args.device) # no ReLU activation in original SASRec implementation?
 
     for name, param in model.named_parameters():
         try:
