@@ -6,6 +6,7 @@ import random
 import numpy as np
 from collections import defaultdict
 from multiprocessing import Process, Queue
+import torch
 
 
 # sampler for batch generation
@@ -391,6 +392,8 @@ def generate_topk_recommendations(model, dataset, args, topks, output_path):
                 candidates.tolist()
             )[0]
 
+            if isinstance(predictions,torch.Tensor):
+                predictions=predictions.detach().cpu().numpy()
             ranking = np.argsort(-predictions)
 
             row = {'user_id': id2user.get(u, u)}

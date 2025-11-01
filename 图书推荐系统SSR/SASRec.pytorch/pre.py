@@ -2,7 +2,7 @@ import pandas as pd
 from datetime import datetime
 
 # 读取原始数据
-file_path = r'F:\GitHub\Big_Data_Analysis_Project\mydata\inter_reevaluation.csv'
+file_path = r'total.csv'
 df = pd.read_csv(file_path)
 
 # 步骤 1: 处理日期格式，填充缺失的空格
@@ -31,7 +31,7 @@ new_df = new_df.sort_values(by=['user_id', 'time'], ascending=[True, True])
 new_df = new_df[['user_id', 'book_id']]
 
 # 保存结果到新的CSV文件
-new_file_path = r'F:\GitHub\Big_Data_Analysis_Project\mydata\processed_inter_reevaluation.csv'
+new_file_path = r'interaction.csv'
 new_df.to_csv(new_file_path, index=False)
 
 print(f"处理完成，结果已保存到 {new_file_path}")
