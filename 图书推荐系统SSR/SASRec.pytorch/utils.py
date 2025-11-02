@@ -239,7 +239,26 @@ def data_partition(fname):
 
 # TODO: merge evaluate functions for test and val set
 # evaluate on test set
-def evaluate(model, dataset, args, k=10):
+def _prepare_topks(topks):
+    if topks is None:
+        return [10]
+    unique = sorted({int(k) for k in topks if int(k) > 0})
+    if not unique:
+        raise ValueError('At least one positive integer top-k value must be provided')
+    return unique
+
+
+def _init_metric_buckets(topks):
+    return {k: {'NDCG': 0.0, 'HR': 0.0} for k in topks}
+
+
+def _finalize_metrics(buckets, valid_user):
+    if valid_user == 0:
+        return {k: (0.0, 0.0) for k in buckets}
+    return {k: (vals['NDCG'] / valid_user, vals['HR'] / valid_user) for k, vals in buckets.items()}
+
+
+def evaluate(model, dataset, args, topks=None):
     data = copy.deepcopy(dataset)
     train = data['user_train']
     valid = data['user_valid']
@@ -247,9 +266,9 @@ def evaluate(model, dataset, args, k=10):
     usernum = data['usernum']
     itemnum = data['itemnum']
 
-    NDCG = 0.0
-    HT = 0.0
     valid_user = 0.0
+    topk_values = _prepare_topks(topks)
+    metric_buckets = _init_metric_buckets(topk_values)
 
     users = random.sample(range(1, usernum + 1), 10000) if usernum > 10000 else range(1, usernum + 1)
     for u in users:
@@ -282,27 +301,28 @@ def evaluate(model, dataset, args, k=10):
 
         valid_user += 1
 
-        if rank < k:
-            NDCG += 1 / np.log2(rank + 2)
-            HT += 1
+        for k in topk_values:
+            if rank < k:
+                metric_buckets[k]['NDCG'] += 1 / np.log2(rank + 2)
+                metric_buckets[k]['HR'] += 1
         if valid_user % 100 == 0:
             print('.', end="")
             sys.stdout.flush()
 
-    return NDCG / valid_user, HT / valid_user
+    return _finalize_metrics(metric_buckets, valid_user)
 
 
 # evaluate on val set
-def evaluate_valid(model, dataset, args, k=10):
+def evaluate_valid(model, dataset, args, topks=None):
     data = copy.deepcopy(dataset)
     train = data['user_train']
     valid = data['user_valid']
     usernum = data['usernum']
     itemnum = data['itemnum']
 
-    NDCG = 0.0
     valid_user = 0.0
-    HT = 0.0
+    topk_values = _prepare_topks(topks)
+    metric_buckets = _init_metric_buckets(topk_values)
     users = random.sample(range(1, usernum + 1), 10000) if usernum > 10000 else range(1, usernum + 1)
     for u in users:
         if len(train[u]) < 1 or len(valid[u]) < 1:
@@ -332,14 +352,15 @@ def evaluate_valid(model, dataset, args, k=10):
 
         valid_user += 1
 
-        if rank < k:
-            NDCG += 1 / np.log2(rank + 2)
-            HT += 1
+        for k in topk_values:
+            if rank < k:
+                metric_buckets[k]['NDCG'] += 1 / np.log2(rank + 2)
+                metric_buckets[k]['HR'] += 1
         if valid_user % 100 == 0:
             print('.', end="")
             sys.stdout.flush()
 
-    return NDCG / valid_user, HT / valid_user
+    return _finalize_metrics(metric_buckets, valid_user)
 
 
 def generate_topk_recommendations(model, dataset, args, topks, output_path):

@@ -48,6 +48,17 @@ except ValueError as exc:
 if not topk_values:
     raise ValueError('Please provide at least one value for --topk')
 
+def _determine_eval_topks(topk_values):
+    """Ensure evaluation always includes commonly reported metrics."""
+    evaluation_topks = sorted(set(topk_values) | {10})
+    return evaluation_topks
+
+
+def _format_metrics(metrics):
+    ordered = sorted(metrics.items(), key=lambda x: x[0])
+    return ', '.join([f'NDCG@{k}: {vals[0]:.4f}, HR@{k}: {vals[1]:.4f}' for k, vals in ordered])
+
+
 if __name__ == '__main__':
     # global dataset
     dataset = data_partition(args.dataset)
@@ -96,10 +107,12 @@ if __name__ == '__main__':
             import pdb; pdb.set_trace()
             
     
+    evaluation_topks = _determine_eval_topks(topk_values)
+
     if args.inference_only:
         model.eval()
-        t_test = evaluate(model, dataset, args)
-        print('test (NDCG@10: %.4f, HR@10: %.4f)' % (t_test[0], t_test[1]))
+        t_test = evaluate(model, dataset, args, evaluation_topks)
+        print('test (' + _format_metrics(t_test) + ')')
         if args.generate_topk:
             output_file = os.path.join(log_dir, args.recommend_output)
             generate_topk_recommendations(model, dataset, args, topk_values, output_file)
@@ -139,10 +152,10 @@ if __name__ == '__main__':
             t1 = time.time() - t0
             T += t1
             print('Evaluating', end='')
-            t_test = evaluate(model, dataset, args)
-            t_valid = evaluate_valid(model, dataset, args)
-            print('epoch:%d, time: %f(s), valid (NDCG@10: %.4f, HR@10: %.4f), test (NDCG@10: %.4f, HR@10: %.4f)'
-                    % (epoch, T, t_valid[0], t_valid[1], t_test[0], t_test[1]))
+            t_test = evaluate(model, dataset, args, evaluation_topks)
+            t_valid = evaluate_valid(model, dataset, args, evaluation_topks)
+            print('epoch:%d, time: %f(s), valid (%s), test (%s)'
+                    % (epoch, T, _format_metrics(t_valid), _format_metrics(t_test)))
 
             f.write(str(t_valid) + ' ' + str(t_test) + '\n')
             f.flush()
