@@ -11,7 +11,7 @@ def _resolve_path(*parts):
 
 
 # 读取原始数据
-file_path = _resolve_path('total.csv')
+file_path = _resolve_path(r'F:\GitHub\Big_Data_Analysis_Project\mydata\inter_reevaluation.csv')
 df = pd.read_csv(file_path)
 
 # 步骤 1: 处理日期格式，填充缺失的空格
@@ -49,7 +49,7 @@ new_df = new_df.merge(item_df, on='book_id', how='left')
 new_df = new_df[['user_id', 'book_id', 'timestamp', '年级', '二级分类']]
 
 # 保存结果到新的CSV文件
-new_file_path = _resolve_path('interaction.csv')
+new_file_path = _resolve_path('processed_inter_reevaluation.csv')
 new_df.to_csv(new_file_path, index=False)
 
 print(f"处理完成，结果已保存到 {new_file_path}")
