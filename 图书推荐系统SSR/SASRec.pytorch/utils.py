@@ -258,14 +258,11 @@ def evaluate(model, dataset, args, k=10):
             continue
 
         seq = np.zeros([args.maxlen], dtype=np.int32)
-        idx = args.maxlen - 1
-        seq[idx] = valid[u][0]
-        idx -= 1
-        for i in reversed(train[u]):
-            seq[idx] = i
-            idx -= 1
-            if idx == -1:
-                break
+        recent_k = min(5, args.maxlen)
+        history = list(train[u]) + valid[u]
+        recent_history = history[-recent_k:]
+        if recent_history:
+            seq[-len(recent_history):] = recent_history
         rated = set(train[u])
         rated.add(0)
         item_idx = [test[u][0]]
@@ -309,12 +306,10 @@ def evaluate_valid(model, dataset, args, k=10):
             continue
 
         seq = np.zeros([args.maxlen], dtype=np.int32)
-        idx = args.maxlen - 1
-        for i in reversed(train[u]):
-            seq[idx] = i
-            idx -= 1
-            if idx == -1:
-                break
+        recent_k = min(5, args.maxlen)
+        recent_history = train[u][-recent_k:]
+        if recent_history:
+            seq[-len(recent_history):] = recent_history
 
         rated = set(train[u])
         rated.add(0)
@@ -378,7 +373,8 @@ def generate_topk_recommendations(model, dataset, args, topks, output_path):
                 continue
 
             seq = np.zeros([args.maxlen], dtype=np.int32)
-            recent = history[-args.maxlen:]
+            recent_k = min(5, args.maxlen)
+            recent = history[-recent_k:]
             seq[-len(recent):] = recent
 
             seen = set(history)

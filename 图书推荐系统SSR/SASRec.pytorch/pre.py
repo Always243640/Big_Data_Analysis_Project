@@ -17,8 +17,21 @@ df['续借时间'] = pd.to_datetime(df['续借时间'], format='%Y-%m-%d %H:%M:%
 df['还书时间'] = pd.to_datetime(df['还书时间'], format='%Y-%m-%d %H:%M:%S', errors='coerce')
 
 
-# 创建新的time列，选择续借时间或借阅时间，取续借时间优先
-df['time'] = df.apply(lambda row: row['续借时间'] if pd.notnull(row['续借时间']) else row['借阅时间'], axis=1)
+# 创建新的time列，根据借阅时间和续借时间选择最新的时间
+def _select_latest_time(row):
+    borrow_time = row['借阅时间']
+    renew_time = row['续借时间']
+
+    if pd.isnull(borrow_time) and pd.isnull(renew_time):
+        return pd.NaT
+    if pd.isnull(borrow_time):
+        return renew_time
+    if pd.isnull(renew_time):
+        return borrow_time
+    return max(borrow_time, renew_time)
+
+
+df['time'] = df.apply(_select_latest_time, axis=1)
 
 # 步骤 3: 提取 user_id, book_id, time
 new_df = df[['user_id', 'book_id', 'time']]
