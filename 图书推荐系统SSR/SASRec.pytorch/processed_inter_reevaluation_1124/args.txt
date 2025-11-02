@@ -1,0 +1,17 @@
+batch_size,128
+dataset,processed_inter_reevaluation.csv
+device,cuda
+dropout_rate,0.5
+generate_topk,True
+hidden_units,50
+inference_only,False
+l2_emb,0.0
+lr,0.001
+maxlen,10
+num_blocks,2
+num_epochs,200
+num_heads,1
+recommend_output,recommendations.csv
+state_dict_path,None
+topk,1,5
+train_dir,1124
